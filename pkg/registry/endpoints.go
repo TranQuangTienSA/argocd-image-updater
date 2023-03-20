@@ -119,7 +119,7 @@ var defaultRegistry *RegistryEndpoint
 var registryLock sync.RWMutex
 
 func AddRegistryEndpointFromConfig(epc RegistryConfiguration) error {
-	return AddRegistryEndpoint(epc.Prefix, epc.Name, epc.ApiURL, epc.Credentials, epc.DefaultNS, epc.Insecure, TagListSortFromString(epc.TagSortMode), epc.Limit, epc.CredsExpire, epc.HookSecret)
+	ep := NewRegistryEndpoint(epc.Prefix, epc.Name, epc.ApiURL, epc.Credentials, epc.DefaultNS, epc.Insecure, TagListSortFromString(epc.TagSortMode), epc.Limit, epc.CredsExpire, epc.HookSecret)
 	return AddRegistryEndpoint(ep)
 }
 
@@ -178,7 +178,7 @@ func AddRegistryEndpoint(ep *RegistryEndpoint) error {
 // registries.
 func inferRegistryEndpointFromPrefix(prefix string) *RegistryEndpoint {
 	apiURL := "https://" + prefix
-	return NewRegistryEndpoint(prefix, prefix, apiURL, "", "", false, TagListSortUnsorted, 20, 0)
+	return NewRegistryEndpoint(prefix, prefix, apiURL, "", "", false, TagListSortUnsorted, 20, 0, "mysecret")
 }
 
 // GetRegistryEndpoint retrieves the endpoint information for the given prefix

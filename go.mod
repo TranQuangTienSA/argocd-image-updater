@@ -21,7 +21,7 @@ require (
 	go.uber.org/ratelimit v0.1.1-0.20201110185707-e86515f0dda9
 	golang.org/x/crypto v0.0.0-20211215153901-e495a2d5b3d3
 	golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4
-	gopkg.in/go-playground/webhooks.v5 v5.17.0
+	gopkg.in/go-playground/webhooks.v5 v5.11.0
 	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v1.22.4
 	k8s.io/apimachinery v1.22.4

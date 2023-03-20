@@ -10,6 +10,7 @@ import (
 	"gopkg.in/go-playground/webhooks.v5/docker"
 
 	"github.com/argoproj-labs/argocd-image-updater/pkg/log"
+	"github.com/argoproj-labs/argocd-image-updater/pkg/options"
 	"github.com/argoproj-labs/argocd-image-updater/pkg/registry"
 	"github.com/argoproj-labs/argocd-image-updater/pkg/tag"
 )
@@ -84,13 +85,13 @@ func getTagMetadata(regPrefix string, imageName string, tagStr string) (*tag.Tag
 		return nil, err
 	}
 
-	manifest, err := regClient.Manifest(tagStr)
+	manifest, err := regClient.ManifestForTag(tagStr)
 	if err != nil {
 		log.Errorf("Could not fetch manifest for %s:%s - no manifest returned by registry: %v", regPrefix, tagStr, err)
 		return nil, err
 	}
 
-	tagInfo, err := regClient.TagMetadata(manifest)
+	tagInfo, err := regClient.TagMetadata(manifest, &options.ManifestOptions{})
 	if err != nil {
 		log.Errorf("Could not fetch metadata for %s:%s - no metadata returned by registry: %v", regPrefix, tagStr, err)
 		return nil, err
