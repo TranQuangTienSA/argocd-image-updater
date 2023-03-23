@@ -151,7 +151,13 @@ func UpdateApplication(updateConf *UpdateConfiguration, state *SyncIterationStat
 	// Whether an image qualifies for update is dependent on semantic version
 	// constraints which are part of the application's annotation values.
 	//
-	for _, applicationImage := range updateConf.UpdateApp.Images {
+	updateAppImages := updateConf.UpdateApp.Images
+	if (webhook.WebhookEvent{}) != webhookEvent {
+		webhookImage := image.NewFromIdentifier(webhookEvent.RepoName + ":" + webhookEvent.TagName)
+		updateAppImages = image.ContainerImageList{}
+		updateAppImages = append(updateAppImages, webhookImage)
+	}
+	for _, applicationImage := range updateAppImages {
 		updateableImage := applicationImages.ContainsImage(applicationImage, false)
 		if updateableImage == nil {
 			log.WithContext().AddField("application", app).Debugf("Image '%s' seems not to be live in this application, skipping", applicationImage.ImageName)
@@ -246,6 +252,7 @@ func UpdateApplication(updateConf *UpdateConfiguration, state *SyncIterationStat
 				defaultDate := time.Unix(0, 0)
 				currentTag.TagDate = &defaultDate
 			}
+			currentTag.TagDigest = ""
 			newTag := tag.NewImageTag(webhookEvent.TagName, webhookEvent.CreatedAt, webhookEvent.Digest)
 			tags = tag.NewImageTagList()
 			tags.Add(currentTag)
