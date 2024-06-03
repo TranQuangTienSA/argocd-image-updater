@@ -79,6 +79,65 @@ func Test_GetImagesFromApplication(t *testing.T) {
 	})
 }
 
+func Test_GetImagesAndAliasesFromApplication(t *testing.T) {
+	t.Run("Get list of images from application", func(t *testing.T) {
+		application := &v1alpha1.Application{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-app",
+				Namespace: "argocd",
+			},
+			Spec: v1alpha1.ApplicationSpec{},
+			Status: v1alpha1.ApplicationStatus{
+				Summary: v1alpha1.ApplicationSummary{
+					Images: []string{"nginx:1.12.2", "that/image", "quay.io/dexidp/dex:v1.23.0"},
+				},
+			},
+		}
+		imageList := GetImagesAndAliasesFromApplication(application)
+		require.Len(t, imageList, 3)
+		assert.Equal(t, "nginx", imageList[0].ImageName)
+		assert.Equal(t, "that/image", imageList[1].ImageName)
+		assert.Equal(t, "dexidp/dex", imageList[2].ImageName)
+	})
+
+	t.Run("Get list of images and image aliases from application that has no images", func(t *testing.T) {
+		application := &v1alpha1.Application{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-app",
+				Namespace: "argocd",
+			},
+			Spec: v1alpha1.ApplicationSpec{},
+			Status: v1alpha1.ApplicationStatus{
+				Summary: v1alpha1.ApplicationSummary{},
+			},
+		}
+		imageList := GetImagesAndAliasesFromApplication(application)
+		assert.Empty(t, imageList)
+	})
+
+	t.Run("Get list of images and aliases from application annotations", func(t *testing.T) {
+		application := &v1alpha1.Application{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-app",
+				Namespace: "argocd",
+				Annotations: map[string]string{
+					common.ImageUpdaterAnnotation: "webserver=nginx",
+				},
+			},
+			Spec: v1alpha1.ApplicationSpec{},
+			Status: v1alpha1.ApplicationStatus{
+				Summary: v1alpha1.ApplicationSummary{
+					Images: []string{"nginx:1.12.2"},
+				},
+			},
+		}
+		imageList := GetImagesAndAliasesFromApplication(application)
+		require.Len(t, imageList, 1)
+		assert.Equal(t, "nginx", imageList[0].ImageName)
+		assert.Equal(t, "webserver", imageList[0].ImageAlias)
+	})
+}
+
 func Test_GetApplicationType(t *testing.T) {
 	t.Run("Get application of type Helm", func(t *testing.T) {
 		application := &v1alpha1.Application{
@@ -156,6 +215,235 @@ func Test_GetApplicationType(t *testing.T) {
 		}
 		appType := GetApplicationType(application)
 		assert.Equal(t, ApplicationTypeKustomize, appType)
+	})
+
+}
+
+func Test_GetApplicationSourceType(t *testing.T) {
+	t.Run("Get application Source Type for Helm", func(t *testing.T) {
+		application := &v1alpha1.Application{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-app",
+				Namespace: "argocd",
+			},
+			Spec: v1alpha1.ApplicationSpec{},
+			Status: v1alpha1.ApplicationStatus{
+				SourceType: v1alpha1.ApplicationSourceTypeHelm,
+				Summary: v1alpha1.ApplicationSummary{
+					Images: []string{"nginx:1.12.2", "that/image", "quay.io/dexidp/dex:v1.23.0"},
+				},
+			},
+		}
+		appType := GetApplicationSourceType(application)
+		assert.Equal(t, v1alpha1.ApplicationSourceTypeHelm, appType)
+	})
+
+	t.Run("Get application Source type for Kustomize", func(t *testing.T) {
+		application := &v1alpha1.Application{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-app",
+				Namespace: "argocd",
+			},
+			Spec: v1alpha1.ApplicationSpec{},
+			Status: v1alpha1.ApplicationStatus{
+				SourceType: v1alpha1.ApplicationSourceTypeKustomize,
+				Summary: v1alpha1.ApplicationSummary{
+					Images: []string{"nginx:1.12.2", "that/image", "quay.io/dexidp/dex:v1.23.0"},
+				},
+			},
+		}
+		appType := GetApplicationSourceType(application)
+		assert.Equal(t, v1alpha1.ApplicationSourceTypeKustomize, appType)
+	})
+
+	t.Run("Get application of unknown Type", func(t *testing.T) {
+		application := &v1alpha1.Application{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-app",
+				Namespace: "argocd",
+			},
+			Spec: v1alpha1.ApplicationSpec{},
+			Status: v1alpha1.ApplicationStatus{
+				SourceType: v1alpha1.ApplicationSourceTypePlugin,
+				Summary: v1alpha1.ApplicationSummary{
+					Images: []string{"nginx:1.12.2", "that/image", "quay.io/dexidp/dex:v1.23.0"},
+				},
+			},
+		}
+		appType := GetApplicationType(application)
+		assert.NotEqual(t, v1alpha1.ApplicationSourceTypeHelm, appType)
+		assert.NotEqual(t, v1alpha1.ApplicationSourceTypeKustomize, appType)
+	})
+
+	t.Run("Get application Source type with kustomize target", func(t *testing.T) {
+		application := &v1alpha1.Application{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-app",
+				Namespace: "argocd",
+				Annotations: map[string]string{
+					common.WriteBackTargetAnnotation: "kustomization:.",
+				},
+			},
+			Spec: v1alpha1.ApplicationSpec{},
+			Status: v1alpha1.ApplicationStatus{
+				SourceType: v1alpha1.ApplicationSourceTypePlugin,
+				Summary: v1alpha1.ApplicationSummary{
+					Images: []string{"nginx:1.12.2", "that/image", "quay.io/dexidp/dex:v1.23.0"},
+				},
+			},
+		}
+		appType := GetApplicationSourceType(application)
+		assert.Equal(t, v1alpha1.ApplicationSourceTypeKustomize, appType)
+	})
+}
+
+func Test_GetApplicationSource(t *testing.T) {
+	t.Run("Get application Source for Helm from monosource application", func(t *testing.T) {
+		application := &v1alpha1.Application{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-app",
+				Namespace: "testns",
+			},
+			Spec: v1alpha1.ApplicationSpec{
+				Source: &v1alpha1.ApplicationSource{
+					Helm: &v1alpha1.ApplicationSourceHelm{
+						Parameters: []v1alpha1.HelmParameter{
+							{
+								Name:  "image.tag",
+								Value: "1.0.0",
+							},
+						},
+					},
+				},
+			},
+			Status: v1alpha1.ApplicationStatus{},
+		}
+
+		appSource := GetApplicationSource(application)
+		assert.NotNil(t, appSource.Helm)
+	})
+
+	t.Run("Get application Source for Kustomize from monosource application", func(t *testing.T) {
+		application := &v1alpha1.Application{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-app",
+				Namespace: "testns",
+			},
+			Spec: v1alpha1.ApplicationSpec{
+				Source: &v1alpha1.ApplicationSource{
+					Kustomize: &v1alpha1.ApplicationSourceKustomize{
+						Images: v1alpha1.KustomizeImages{
+							"jannfis/foobar:1.0.0",
+						},
+					},
+				},
+			},
+			Status: v1alpha1.ApplicationStatus{},
+		}
+
+		appSource := GetApplicationSource(application)
+		assert.NotNil(t, appSource.Kustomize)
+	})
+
+	t.Run("Get application of unknown Type", func(t *testing.T) {
+		application := &v1alpha1.Application{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-app",
+				Namespace: "testns",
+			},
+			Spec: v1alpha1.ApplicationSpec{
+				Source: &v1alpha1.ApplicationSource{
+					RepoURL: "https://example.argocd",
+				},
+			},
+			Status: v1alpha1.ApplicationStatus{},
+		}
+
+		appSource := GetApplicationSource(application)
+		assert.NotEmpty(t, appSource)
+	})
+
+	t.Run("Get application Source for Helm from multisource application", func(t *testing.T) {
+		application := &v1alpha1.Application{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-app",
+				Namespace: "testns",
+			},
+			Spec: v1alpha1.ApplicationSpec{
+				Sources: v1alpha1.ApplicationSources{
+					v1alpha1.ApplicationSource{
+						Path: "sources/source1",
+						Helm: &v1alpha1.ApplicationSourceHelm{
+							Parameters: []v1alpha1.HelmParameter{
+								{
+									Name:  "image.tag",
+									Value: "1.0.0",
+								},
+							},
+						},
+					},
+					v1alpha1.ApplicationSource{
+						Path: "sources/source2",
+					},
+				},
+			},
+			Status: v1alpha1.ApplicationStatus{},
+		}
+
+		appSource := GetApplicationSource(application)
+		assert.NotNil(t, appSource.Helm)
+	})
+
+	t.Run("Get application Source for Kustomize from multisource application", func(t *testing.T) {
+		application := &v1alpha1.Application{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-app",
+				Namespace: "testns",
+			},
+			Spec: v1alpha1.ApplicationSpec{
+				Sources: v1alpha1.ApplicationSources{
+					v1alpha1.ApplicationSource{
+						Path: "sources/source1",
+						Kustomize: &v1alpha1.ApplicationSourceKustomize{
+							Images: v1alpha1.KustomizeImages{
+								"jannfis/foobar:1.0.0",
+							},
+						},
+					},
+					v1alpha1.ApplicationSource{
+						Path: "sources/source2",
+					},
+				},
+			},
+			Status: v1alpha1.ApplicationStatus{},
+		}
+
+		appSource := GetApplicationSource(application)
+		assert.NotNil(t, appSource.Kustomize)
+	})
+
+	t.Run("Return first Source for not Kustomize neither Helm from multisource application", func(t *testing.T) {
+		application := &v1alpha1.Application{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "test-app",
+				Namespace: "testns",
+			},
+			Spec: v1alpha1.ApplicationSpec{
+				Sources: v1alpha1.ApplicationSources{
+					v1alpha1.ApplicationSource{
+						Path: "sources/source1",
+					},
+					v1alpha1.ApplicationSource{
+						Path: "sources/source2",
+					},
+				},
+			},
+			Status: v1alpha1.ApplicationStatus{},
+		}
+
+		appSource := GetApplicationSource(application)
+		assert.NotEmpty(t, appSource)
+		assert.Equal(t, appSource.Path, "sources/source1")
 	})
 
 }
@@ -312,7 +600,9 @@ func Test_GetHelmParamAnnotations(t *testing.T) {
 			fmt.Sprintf(common.HelmParamImageSpecAnnotation, "myimg"): "image.blub",
 			fmt.Sprintf(common.HelmParamImageTagAnnotation, "myimg"):  "image.blab",
 		}
-		name, tag := getHelmParamNamesFromAnnotation(annotations, "")
+		name, tag := getHelmParamNamesFromAnnotation(annotations, &image.ContainerImage{
+			ImageAlias: "",
+		})
 		assert.Equal(t, "image.name", name)
 		assert.Equal(t, "image.tag", tag)
 	})
@@ -322,7 +612,9 @@ func Test_GetHelmParamAnnotations(t *testing.T) {
 			fmt.Sprintf(common.HelmParamImageSpecAnnotation, "myimg"): "image.path",
 			fmt.Sprintf(common.HelmParamImageTagAnnotation, "myimg"):  "image.tag",
 		}
-		name, tag := getHelmParamNamesFromAnnotation(annotations, "myimg")
+		name, tag := getHelmParamNamesFromAnnotation(annotations, &image.ContainerImage{
+			ImageAlias: "myimg",
+		})
 		assert.Equal(t, "image.path", name)
 		assert.Empty(t, tag)
 	})
@@ -332,7 +624,9 @@ func Test_GetHelmParamAnnotations(t *testing.T) {
 			fmt.Sprintf(common.HelmParamImageNameAnnotation, "myimg"): "image.name",
 			fmt.Sprintf(common.HelmParamImageTagAnnotation, "myimg"):  "image.tag",
 		}
-		name, tag := getHelmParamNamesFromAnnotation(annotations, "myimg")
+		name, tag := getHelmParamNamesFromAnnotation(annotations, &image.ContainerImage{
+			ImageAlias: "myimg",
+		})
 		assert.Equal(t, "image.name", name)
 		assert.Equal(t, "image.tag", tag)
 	})
@@ -342,7 +636,9 @@ func Test_GetHelmParamAnnotations(t *testing.T) {
 			fmt.Sprintf(common.HelmParamImageNameAnnotation, "otherimg"): "image.name",
 			fmt.Sprintf(common.HelmParamImageTagAnnotation, "otherimg"):  "image.tag",
 		}
-		name, tag := getHelmParamNamesFromAnnotation(annotations, "myimg")
+		name, tag := getHelmParamNamesFromAnnotation(annotations, &image.ContainerImage{
+			ImageAlias: "myimg",
+		})
 		assert.Empty(t, name)
 		assert.Empty(t, tag)
 	})
@@ -351,14 +647,18 @@ func Test_GetHelmParamAnnotations(t *testing.T) {
 		annotations := map[string]string{
 			fmt.Sprintf(common.HelmParamImageTagAnnotation, "myimg"): "image.tag",
 		}
-		name, tag := getHelmParamNamesFromAnnotation(annotations, "myimg")
+		name, tag := getHelmParamNamesFromAnnotation(annotations, &image.ContainerImage{
+			ImageAlias: "myimg",
+		})
 		assert.Empty(t, name)
 		assert.Equal(t, "image.tag", tag)
 	})
 
 	t.Run("No suitable annotations found", func(t *testing.T) {
 		annotations := map[string]string{}
-		name, tag := getHelmParamNamesFromAnnotation(annotations, "myimg")
+		name, tag := getHelmParamNamesFromAnnotation(annotations, &image.ContainerImage{
+			ImageAlias: "myimg",
+		})
 		assert.Empty(t, name)
 		assert.Empty(t, tag)
 	})

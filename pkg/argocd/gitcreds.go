@@ -3,6 +3,7 @@ package argocd
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
@@ -42,7 +43,7 @@ func getCredsFromArgoCD(wbc *WriteBackConfig, kubeClient *kube.KubernetesClient)
 	if !repo.HasCredentials() {
 		return nil, fmt.Errorf("credentials for '%s' are not configured in Argo CD settings", wbc.GitRepo)
 	}
-	return repo.GetGitCreds(nil), nil
+	return repo.GetGitCreds(git.NoopCredsStore{}), nil
 }
 
 // getCredsFromSecret loads repository credentials from secret
@@ -64,16 +65,33 @@ func getCredsFromSecret(wbc *WriteBackConfig, credentialsSecret string, kubeClie
 		if sshPrivateKey, ok = credentials["sshPrivateKey"]; !ok {
 			return nil, fmt.Errorf("invalid secret %s: does not contain field sshPrivateKey", credentialsSecret)
 		}
-		return git.NewSSHCreds(string(sshPrivateKey), "", true), nil
+		return git.NewSSHCreds(string(sshPrivateKey), "", true, git.NoopCredsStore{}, ""), nil
 	} else if git.IsHTTPSURL(wbc.GitRepo) {
-		var username, password []byte
-		if username, ok = credentials["username"]; !ok {
-			return nil, fmt.Errorf("invalid secret %s: does not contain field username", credentialsSecret)
+		var username, password, githubAppID, githubAppInstallationID, githubAppPrivateKey []byte
+		if githubAppID, ok = credentials["githubAppID"]; ok {
+			if githubAppInstallationID, ok = credentials["githubAppInstallationID"]; !ok {
+				return nil, fmt.Errorf("invalid secret %s: does not contain field githubAppInstallationID", credentialsSecret)
+			}
+			if githubAppPrivateKey, ok = credentials["githubAppPrivateKey"]; !ok {
+				return nil, fmt.Errorf("invalid secret %s: does not contain field githubAppPrivateKey", credentialsSecret)
+			}
+			// converting byte array to string and ultimately int64 for NewGitHubAppCreds
+			intGithubAppID, err := strconv.ParseInt(string(githubAppID), 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value in field githubAppID: %w", err)
+			}
+			intGithubAppInstallationID, _ := strconv.ParseInt(string(githubAppInstallationID), 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value in field githubAppInstallationID: %w", err)
+			}
+			return git.NewGitHubAppCreds(intGithubAppID, intGithubAppInstallationID, string(githubAppPrivateKey), "", "", "", "", true, "", git.NoopCredsStore{}), nil
+		} else if username, ok = credentials["username"]; ok {
+			if password, ok = credentials["password"]; !ok {
+				return nil, fmt.Errorf("invalid secret %s: does not contain field password", credentialsSecret)
+			}
+			return git.NewHTTPSCreds(string(username), string(password), "", "", true, "", git.NoopCredsStore{}, false), nil
 		}
-		if password, ok = credentials["password"]; !ok {
-			return nil, fmt.Errorf("invalid secret %s: does not contain field password", credentialsSecret)
-		}
-		return git.NewHTTPSCreds(string(username), string(password), "", "", true, ""), nil
+		return nil, fmt.Errorf("invalid repository credentials in secret %s: does not contain githubAppID or username", credentialsSecret)
 	}
 	return nil, fmt.Errorf("unknown repository type")
 }
